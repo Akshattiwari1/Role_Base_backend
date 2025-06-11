@@ -23,31 +23,27 @@ router.post('/', protect, authorize(['buyer']), async (req, res) => {
 
     // Validate products and determine the single enterprise for the order
     for (const item of items) {
-      const product = await Product.findById(item.product);
+      const product = await Product.findById(item.product); // `item.product` is the product ID
 
       if (!product) {
-        // If product is not found, return 404. This is a clear client-side error.
         return res.status(404).json({ message: `Product not found: ${item.name || item.product}` });
       }
 
-      // === CRITICAL CHECK ADDED HERE ===
-      // Ensure product.enterprise exists before calling .toString()
-      // This catches cases where product exists but its enterprise field is missing/null
       if (!product.enterprise) {
           console.error(`Product ${product._id} (${product.name}) found, but has no associated enterprise.`);
           return res.status(500).json({ message: `Product "${product.name}" is missing enterprise information. Please contact support.` });
       }
-      // =================================
 
       if (!enterpriseIdForOrder) {
         enterpriseIdForOrder = product.enterprise.toString();
       } else if (enterpriseIdForOrder !== product.enterprise.toString()) {
-        // If items from different enterprises are somehow in the cart, return 400
         return res.status(400).json({ message: 'All items in one order must belong to the same enterprise.' });
       }
 
+      // === CRUCIAL FIX HERE: Provide productId and enterpriseId for each item ===
       orderItems.push({
-        product: product._id,
+        productId: product._id, // Providing the product ID as 'productId'
+        enterpriseId: product.enterprise, // Providing the enterprise ID for EACH item
         name: product.name,
         quantity: item.quantity,
         priceAtOrder: product.price,
@@ -55,27 +51,27 @@ router.post('/', protect, authorize(['buyer']), async (req, res) => {
       calculatedTotalAmount += product.price * item.quantity;
     }
 
-    // Basic validation for total amount (optional, but good for security/accuracy)
-    if (Math.abs(calculatedTotalAmount - totalAmount) > 0.01) { // Allow for minor floating point discrepancies
+    if (Math.abs(calculatedTotalAmount - totalAmount) > 0.01) {
       return res.status(400).json({ message: 'Calculated total amount does not match provided total amount.' });
     }
 
-    // Create the order document
     const order = new Order({
-      buyer: req.user.id, // User ID from the protect middleware
-      enterprise: enterpriseIdForOrder, // The determined enterprise ID
-      items: orderItems,
+      buyer: req.user.id,
+      enterprise: enterpriseIdForOrder, // This is for the overall order, not for individual items
+      items: orderItems, // Now contains productId and enterpriseId on each sub-document
       totalAmount,
     });
 
     const createdOrder = await order.save();
-    res.status(201).json(createdOrder); // Respond with the created order
+    res.status(201).json(createdOrder);
 
   } catch (error) {
-    // Log the full error for debugging in server logs (e.g., Render logs)
     console.error('Error placing order:', error);
-    // Send a generic 500 response to the client
-    res.status(500).json({ message: 'Server error placing order' });
+    // You can make this error message more specific if 'error.errors' contains validation details
+    const errorMessage = error.name === 'ValidationError'
+      ? `Order validation failed: ${Object.values(error.errors).map(err => err.message).join(', ')}`
+      : 'Server error placing order';
+    res.status(500).json({ message: errorMessage });
   }
 });
 
