@@ -31,7 +31,6 @@ app.use((req, res, next) => {
     res.status(404).json({ message: `API endpoint not found: ${req.originalUrl}` });
 });
 
-app.use(errorHandler); // This line now has 'errorHandler' defined
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
