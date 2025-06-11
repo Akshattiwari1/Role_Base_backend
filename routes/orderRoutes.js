@@ -23,27 +23,29 @@ router.post('/', protect, authorize(['buyer']), async (req, res) => {
 
     // Validate products and determine the single enterprise for the order
     for (const item of items) {
-      const product = await Product.findById(item.product); // `item.product` is the product ID
+      const product = await Product.findById(item.product); // `item.product` is the product ID from frontend
 
       if (!product) {
         return res.status(404).json({ message: `Product not found: ${item.name || item.product}` });
       }
 
+      // Check if product has an associated enterprise (critical for validation and order logic)
       if (!product.enterprise) {
           console.error(`Product ${product._id} (${product.name}) found, but has no associated enterprise.`);
           return res.status(500).json({ message: `Product "${product.name}" is missing enterprise information. Please contact support.` });
       }
 
+      // Ensure all items in the order belong to the same enterprise
       if (!enterpriseIdForOrder) {
         enterpriseIdForOrder = product.enterprise.toString();
       } else if (enterpriseIdForOrder !== product.enterprise.toString()) {
         return res.status(400).json({ message: 'All items in one order must belong to the same enterprise.' });
       }
 
-      // === CRUCIAL FIX HERE: Provide productId and enterpriseId for each item ===
+      // === CRUCIAL FIX: Provide productId and enterpriseId for each item, matching OrderItemSchema ===
       orderItems.push({
-        productId: product._id, // Providing the product ID as 'productId'
-        enterpriseId: product.enterprise, // Providing the enterprise ID for EACH item
+        productId: product._id,       // Maps to `productId` in orderItemSchema
+        enterpriseId: product.enterprise, // Maps to `enterpriseId` in orderItemSchema
         name: product.name,
         quantity: item.quantity,
         priceAtOrder: product.price,
@@ -51,14 +53,16 @@ router.post('/', protect, authorize(['buyer']), async (req, res) => {
       calculatedTotalAmount += product.price * item.quantity;
     }
 
+    // Basic validation for total amount (optional, but good for security/accuracy)
     if (Math.abs(calculatedTotalAmount - totalAmount) > 0.01) {
       return res.status(400).json({ message: 'Calculated total amount does not match provided total amount.' });
     }
 
+    // Create the order document
     const order = new Order({
-      buyer: req.user.id,
-      enterprise: enterpriseIdForOrder, // This is for the overall order, not for individual items
-      items: orderItems, // Now contains productId and enterpriseId on each sub-document
+      buyer: req.user.id, // User ID from the protect middleware
+      enterprise: enterpriseIdForOrder, // Overall order enterprise ID
+      items: orderItems, // Array of items, now conforming to orderItemSchema
       totalAmount,
     });
 
@@ -67,7 +71,7 @@ router.post('/', protect, authorize(['buyer']), async (req, res) => {
 
   } catch (error) {
     console.error('Error placing order:', error);
-    // You can make this error message more specific if 'error.errors' contains validation details
+    // Provide a more descriptive error message if it's a Mongoose validation error
     const errorMessage = error.name === 'ValidationError'
       ? `Order validation failed: ${Object.values(error.errors).map(err => err.message).join(', ')}`
       : 'Server error placing order';
@@ -81,8 +85,9 @@ router.post('/', protect, authorize(['buyer']), async (req, res) => {
 router.get('/my-orders', protect, authorize(['buyer']), async (req, res) => {
   try {
     const orders = await Order.find({ buyer: req.user.id })
-      .populate('items.product', 'name description price')
-      .populate('enterprise', 'name')
+      .populate('items.productId', 'name description price') // Populate using productId
+      .populate('items.enterpriseId', 'name') // Populate using enterpriseId
+      .populate('enterprise', 'name') // Populate overall enterprise for order
       .sort({ orderDate: -1 });
     res.json(orders);
   } catch (error) {
@@ -98,7 +103,8 @@ router.get('/enterprise-orders', protect, authorize(['enterprise']), async (req,
   try {
     const orders = await Order.find({ enterprise: req.user.id })
       .populate('buyer', 'name email')
-      .populate('items.product', 'name description price')
+      .populate('items.productId', 'name description price') // Populate using productId
+      .populate('items.enterpriseId', 'name') // Populate using enterpriseId
       .sort({ orderDate: -1 });
     res.json(orders);
   } catch (error) {
@@ -125,7 +131,8 @@ router.get('/all', protect, authorize(['admin']), async (req, res) => {
     const orders = await Order.find(filter)
       .populate('buyer', 'name email')
       .populate('enterprise', 'name')
-      .populate('items.product', 'name description price')
+      .populate('items.productId', 'name description price') // Populate using productId
+      .populate('items.enterpriseId', 'name') // Populate using enterpriseId
       .sort({ orderDate: -1 });
 
     res.json(orders);
@@ -144,7 +151,8 @@ router.put('/:id/status', protect, async (req, res) => {
   const { status, items: updatedItems } = req.body;
 
   try {
-    const order = await Order.findById(id).populate('items.product');
+    // Populate `items.productId` to get product details needed for stock update
+    const order = await Order.findById(id).populate('items.productId');
 
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
@@ -152,6 +160,7 @@ router.put('/:id/status', protect, async (req, res) => {
 
     // Role-based authorization for status changes
     if (req.user.role === 'enterprise') {
+      // Ensure the enterprise can only manage orders for their own products
       if (order.enterprise.toString() !== req.user.id) {
         return res.status(403).json({ message: 'Not authorized to manage this order' });
       }
@@ -163,7 +172,8 @@ router.put('/:id/status', protect, async (req, res) => {
             const orderItem = order.items.find(item => item._id.toString() === updatedItem._id);
 
             if (orderItem) {
-                const product = await Product.findById(orderItem.product._id);
+                // Use orderItem.productId directly as it's populated
+                const product = await Product.findById(orderItem.productId._id);
                 if (!product) {
                     throw new Error(`Product not found for item ${orderItem.name}`);
                 }
