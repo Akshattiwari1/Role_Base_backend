@@ -1,16 +1,16 @@
 // backend/routes/productRoutes.js
 const express = require('express');
 const router = express.Router();
-const Product = require('../models/Product');
-const { protect, authorize } = require('../middleware/authMiddleware'); // Assuming you have protect and authorize middleware
+const Product = require('../models/Product'); // Assuming you have a Product model
+const { protect, authorize } = require('../middleware/authMiddleware'); // Assuming your auth middleware
 
 // @desc    Get all products (accessible to all authenticated users)
 // @route   GET /api/products
 // @access  Private (all authenticated roles: buyer, enterprise, admin)
-router.get('/', protect, async (req, res) => { // Removed 'authorize' to allow all protected users access
+router.get('/', protect, async (req, res) => {
   try {
-    const products = await Product.find({ isAvailable: true }) // You might add filters later
-      .populate('enterprise', 'name'); // Populate enterprise name for display
+    const products = await Product.find({ isAvailable: true })
+      .populate('enterprise', 'name');
     res.json(products);
   } catch (error) {
     console.error('Error fetching all products:', error);
@@ -43,7 +43,7 @@ router.post('/', protect, authorize(['enterprise']), async (req, res) => {
 
   try {
     const product = new Product({
-      enterprise: req.user.id, // Assign the product to the logged-in enterprise
+      enterprise: req.user.id,
       name,
       description,
       price,
@@ -111,7 +111,7 @@ router.delete('/:id', protect, authorize(['enterprise']), async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to delete this product' });
     }
 
-    await product.deleteOne(); // Use deleteOne() or remove() depending on Mongoose version
+    await product.deleteOne();
     res.json({ message: 'Product removed' });
   } catch (error) {
     console.error('Error deleting product:', error);
