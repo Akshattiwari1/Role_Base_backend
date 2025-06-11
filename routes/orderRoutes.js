@@ -148,7 +148,7 @@ router.get('/all', protect, authorize(['admin']), async (req, res) => {
 // @access  Private/Enterprise or Admin
 router.put('/:id/status', protect, async (req, res) => {
   const { id } = req.params;
-  const { status, items: updatedItems } = req.body;
+  const { status, items: updatedItems } = req.body; // <-- updatedItems will be the array from frontend
 
   try {
     // Populate `items.productId` to get product details needed for stock update
@@ -165,6 +165,7 @@ router.put('/:id/status', protect, async (req, res) => {
         return res.status(403).json({ message: 'Not authorized to manage this order' });
       }
       if (status === 'approved') {
+        // === THIS IS THE VALIDATION THAT IS LIKELY CAUSING YOUR 400 ERROR ===
         if (!updatedItems || updatedItems.length === 0 || updatedItems.some(item => !item.assignedWarehouse || item.assignedWarehouse === '')) {
             return res.status(400).json({ message: 'Assigned warehouses are required for all items before approval.' });
         }
