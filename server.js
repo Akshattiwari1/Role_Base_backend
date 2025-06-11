@@ -1,45 +1,43 @@
-// In your backend's main file (e.g., server.js or app.js)
-
 const express = require('express');
 const dotenv = require('dotenv');
+const cors = require('cors');
 const connectDB = require('./config/db');
-const cors = require('cors'); // Import the cors package
 
-// Import routes
-const authRoutes = require('./routes/authRoutes');
-const protectedRoutes = require('./routes/protectedRoutes');
-const adminRoutes = require('./routes/adminRoutes');
-
+// Load environment variables from .env file
 dotenv.config();
+
+// Connect to database
 connectDB();
 
 const app = express();
 
-// --- Enable CORS ---
-// This allows requests from all origins. For production, you might want to restrict this.
+// Middleware
+// Enable CORS for all origins (for development)
 app.use(cors());
-
-// Enable JSON body parsing for incoming requests (should be before routes)
+// Body parser for JSON requests
 app.use(express.json());
 
-// --- Define Routes ---
+// Import Routes
+const authRoutes = require('./routes/authRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const productRoutes = require('./routes/productRoutes');
+const orderRoutes = require('./routes/orderRoutes');
+
+// Mount Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/protected', protectedRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api/orders', orderRoutes);
 
-// Basic root route
+// Basic route for testing server status
 app.get('/', (req, res) => {
-    res.send('API is running...');
+  res.send('API is running...');
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-    console.error(err.stack);
-    res.status(500).send('Something broke!');
-});
-
+// Define the port from environment variables or default to 5000
 const PORT = process.env.PORT || 5000;
 
+// Start the server
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });

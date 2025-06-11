@@ -1,21 +1,24 @@
+// backend/routes/protectedRoutes.js
 const express = require('express');
 const protect = require('../middlewares/authMiddleware');
-const roleAccess = require('../middlewares/roleMiddleware');
+const authorize = require('../middlewares/roleMiddleware');
+
 const router = express.Router();
 
-// Admin-only route
-router.get("/admin", protect, roleAccess('admin'), (req, res) => {
-  res.json({ message: "Welcome Admin" });
+router.get('/admin-resource', protect, authorize('admin'), (req, res) => {
+  res.json({ message: 'Welcome to the Admin Protected Resource!', user: req.user });
 });
 
-// Enterprise-only route (accessible by admin too)
-router.get("/enterprise", protect, roleAccess('admin', 'enterprise'), (req, res) => {
-  res.json({ message: "Welcome Enterprise or Admin" });
+router.get('/enterprise-resource', protect, authorize('enterprise'), (req, res) => {
+  res.json({ message: 'Welcome to the Enterprise Protected Resource!', user: req.user });
 });
 
-// Buyer-only route (accessible by admin, enterprise, and buyer)
-router.get("/buyer", protect, roleAccess('admin', 'enterprise','buyer'), (req, res) => {
-  res.json({ message: "Welcome Buyer" });
+router.get('/buyer-resource', protect, authorize('buyer'), (req, res) => {
+  res.json({ message: 'Welcome to the Buyer Protected Resource!', user: req.user });
+});
+
+router.get('/any-authenticated', protect, (req, res) => {
+  res.json({ message: 'Welcome, any authenticated user!', user: req.user });
 });
 
 module.exports = router;
