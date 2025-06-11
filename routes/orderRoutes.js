@@ -19,18 +19,30 @@ router.post('/', protect, authorize(['buyer']), async (req, res) => {
   try {
     const orderItems = [];
     let calculatedTotalAmount = 0;
-    let enterpriseIdForOrder = null;
+    let enterpriseIdForOrder = null; // This will hold the ObjectId of the single enterprise for this order
 
     // Validate products and determine the single enterprise for the order
     for (const item of items) {
       const product = await Product.findById(item.product);
+
       if (!product) {
-        return res.status(404).json({ message: `Product not found: ${item.name}` });
+        // If product is not found, return 404. This is a clear client-side error.
+        return res.status(404).json({ message: `Product not found: ${item.name || item.product}` });
       }
+
+      // === CRITICAL CHECK ADDED HERE ===
+      // Ensure product.enterprise exists before calling .toString()
+      // This catches cases where product exists but its enterprise field is missing/null
+      if (!product.enterprise) {
+          console.error(`Product ${product._id} (${product.name}) found, but has no associated enterprise.`);
+          return res.status(500).json({ message: `Product "${product.name}" is missing enterprise information. Please contact support.` });
+      }
+      // =================================
 
       if (!enterpriseIdForOrder) {
         enterpriseIdForOrder = product.enterprise.toString();
       } else if (enterpriseIdForOrder !== product.enterprise.toString()) {
+        // If items from different enterprises are somehow in the cart, return 400
         return res.status(400).json({ message: 'All items in one order must belong to the same enterprise.' });
       }
 
@@ -43,21 +55,26 @@ router.post('/', protect, authorize(['buyer']), async (req, res) => {
       calculatedTotalAmount += product.price * item.quantity;
     }
 
-    if (Math.abs(calculatedTotalAmount - totalAmount) > 0.01) {
+    // Basic validation for total amount (optional, but good for security/accuracy)
+    if (Math.abs(calculatedTotalAmount - totalAmount) > 0.01) { // Allow for minor floating point discrepancies
       return res.status(400).json({ message: 'Calculated total amount does not match provided total amount.' });
     }
 
+    // Create the order document
     const order = new Order({
-      buyer: req.user.id,
-      enterprise: enterpriseIdForOrder,
+      buyer: req.user.id, // User ID from the protect middleware
+      enterprise: enterpriseIdForOrder, // The determined enterprise ID
       items: orderItems,
       totalAmount,
     });
 
     const createdOrder = await order.save();
-    res.status(201).json(createdOrder);
+    res.status(201).json(createdOrder); // Respond with the created order
+
   } catch (error) {
+    // Log the full error for debugging in server logs (e.g., Render logs)
     console.error('Error placing order:', error);
+    // Send a generic 500 response to the client
     res.status(500).json({ message: 'Server error placing order' });
   }
 });
