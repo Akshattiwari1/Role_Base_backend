@@ -3,7 +3,6 @@ const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const connectDB = require('./config/db');
-const { errorHandler } = require('./middleware/errorMiddleware'); // <--- ADD THIS LINE BACK!
 
 // Import your route files (ensure these paths are correct)
 const authRoutes = require('./routes/authRoutes');
