@@ -1,6 +1,6 @@
 const express = require('express');
-const protect = require('../middlewares/authMiddleware');
-const roleAccess = require('../middlewares/roleMiddleware');
+const protect = require('../middleware/authMiddleware');
+const roleAccess = require('../middleware/roleMiddleware');
 const router = express.Router();
 
 // Admin-only route

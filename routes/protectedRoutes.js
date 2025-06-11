@@ -1,7 +1,7 @@
 // backend/routes/protectedRoutes.js
 const express = require('express');
-const protect = require('../middlewares/authMiddleware');
-const authorize = require('../middlewares/roleMiddleware');
+const protect = require('../middleware/authMiddleware');
+const authorize = require('../middleware/roleMiddleware');
 
 const router = express.Router();
 
