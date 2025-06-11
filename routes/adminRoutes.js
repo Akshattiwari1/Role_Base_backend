@@ -6,26 +6,27 @@ const User = require('../models/User'); // Assuming you have a User model
 const Product = require('../models/Product'); // For dashboard stats
 const Order = require('../models/Order');     // For dashboard stats
 const { protect, authorize } = require('../middleware/authMiddleware'); // Your authentication/authorization middleware
+const asyncHandler = require('express-async-handler'); // For handling async errors in middleware/routes
 
 // --- User Management Routes ---
 
 // @desc    Get all users (buyers and enterprises)
 // @route   GET /api/admin/users
 // @access  Private/Admin
-router.get('/users', protect, authorize(['admin']), async (req, res) => {
+router.get('/users', protect, authorize(['admin']), asyncHandler(async (req, res) => {
   try {
-    const users = await User.find({ role: { $in: ['buyer', 'enterprise'] } }).select('-password'); // Exclude passwords
+    const users = await User.find({ role: { $in: ['buyer', 'enterprise', 'admin'] } }).select('-password'); // Include admin for comprehensive list
     res.json(users);
   } catch (error) {
     console.error('Error fetching users for admin:', error);
     res.status(500).json({ message: 'Server error fetching users' });
   }
-});
+}));
 
 // @desc    Update user status (e.g., approve/reject enterprise, block user)
-// @route   PUT /api/admin/users/:id/status
+// @route   PUT /api/admin/users/:id/status  <-- CORRECTED ROUTE
 // @access  Private/Admin
-router.put('/:id/status', protect, authorize(['admin']), async (req, res) => {
+router.put('/users/:id/status', protect, authorize(['admin']), asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { enterpriseStatus, isBlocked } = req.body;
 
@@ -33,8 +34,21 @@ router.put('/:id/status', protect, authorize(['admin']), async (req, res) => {
     const user = await User.findById(id);
 
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      res.status(404);
+      throw new Error('User not found');
     }
+
+    // Prevent blocking an admin from admin interface itself for safety
+    if (user.role === 'admin' && user._id.toString() !== req.user.id && isBlocked !== undefined) {
+      res.status(403);
+      throw new Error('Cannot block another admin user');
+    }
+    // Prevent admin from changing their own enterprise status if they somehow gain enterprise role
+    if (user._id.toString() === req.user.id && enterpriseStatus !== undefined) {
+      res.status(403);
+      throw new Error('Cannot change your own enterprise status through this interface.');
+    }
+
 
     if (enterpriseStatus !== undefined) {
         user.enterpriseStatus = enterpriseStatus;
@@ -47,16 +61,17 @@ router.put('/:id/status', protect, authorize(['admin']), async (req, res) => {
     res.json({ message: 'User status updated successfully', user: updatedUser });
   } catch (error) {
     console.error('Error updating user status:', error);
-    res.status(500).json({ message: 'Server error updating user status' });
+    res.status(500).json({ message: error.message || 'Server error updating user status' });
   }
-});
+}));
+
 
 // --- Dashboard Statistics Route ---
 
 // @desc    Get admin dashboard statistics
 // @route   GET /api/admin/dashboard-stats
 // @access  Private/Admin
-router.get('/dashboard-stats', protect, authorize(['admin']), async (req, res) => {
+router.get('/dashboard-stats', protect, authorize(['admin']), asyncHandler(async (req, res) => {
   try {
     const totalProducts = await Product.countDocuments();
     const totalOrders = await Order.countDocuments();
@@ -133,7 +148,7 @@ router.get('/dashboard-stats', protect, authorize(['admin']), async (req, res) =
     console.error('Error fetching dashboard stats:', error);
     res.status(500).json({ message: 'Server error fetching dashboard statistics' });
   }
-});
+}));
 
 
 module.exports = router;

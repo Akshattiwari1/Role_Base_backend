@@ -1,8 +1,9 @@
+// backend/routes/orderRoutes.js
 const express = require('express');
 const router = express.Router();
 const Order = require('../models/Order');
-const Product = require('../models/Product'); // Make sure to import Product model
-const User = require('../models/User');     // Make sure to import User model for populating buyer/enterprise names if needed by admin route
+const Product = require('../models/Product');
+const User = require('../models/User'); // Used for populating buyer/enterprise names
 const { protect, authorize } = require('../middleware/authMiddleware');
 
 // @desc    Place a new order
@@ -16,18 +17,17 @@ router.post('/', protect, authorize(['buyer']), async (req, res) => {
   }
 
   try {
-    // Basic validation: Check if products exist and if buyer has enough balance (optional, but good practice)
     const orderItems = [];
     let calculatedTotalAmount = 0;
-    let enterpriseIdForOrder = null; // Assuming an order is placed for products from a single enterprise for simplicity
+    let enterpriseIdForOrder = null;
 
+    // Validate products and determine the single enterprise for the order
     for (const item of items) {
       const product = await Product.findById(item.product);
       if (!product) {
         return res.status(404).json({ message: `Product not found: ${item.name}` });
       }
 
-      // Check if enterprise is assigned (all products in one order must be from the same enterprise)
       if (!enterpriseIdForOrder) {
         enterpriseIdForOrder = product.enterprise.toString();
       } else if (enterpriseIdForOrder !== product.enterprise.toString()) {
@@ -38,18 +38,18 @@ router.post('/', protect, authorize(['buyer']), async (req, res) => {
         product: product._id,
         name: product.name,
         quantity: item.quantity,
-        priceAtOrder: product.price, // Store price at the time of order
+        priceAtOrder: product.price,
       });
       calculatedTotalAmount += product.price * item.quantity;
     }
 
-    if (Math.abs(calculatedTotalAmount - totalAmount) > 0.01) { // Floating point comparison
+    if (Math.abs(calculatedTotalAmount - totalAmount) > 0.01) {
       return res.status(400).json({ message: 'Calculated total amount does not match provided total amount.' });
     }
 
     const order = new Order({
       buyer: req.user.id,
-      enterprise: enterpriseIdForOrder, // Assign the enterprise for the order
+      enterprise: enterpriseIdForOrder,
       items: orderItems,
       totalAmount,
     });
@@ -68,8 +68,8 @@ router.post('/', protect, authorize(['buyer']), async (req, res) => {
 router.get('/my-orders', protect, authorize(['buyer']), async (req, res) => {
   try {
     const orders = await Order.find({ buyer: req.user.id })
-      .populate('items.product', 'name description price') // Populate product details for items
-      .populate('enterprise', 'name') // Populate enterprise name
+      .populate('items.product', 'name description price')
+      .populate('enterprise', 'name')
       .sort({ orderDate: -1 });
     res.json(orders);
   } catch (error) {
@@ -84,8 +84,8 @@ router.get('/my-orders', protect, authorize(['buyer']), async (req, res) => {
 router.get('/enterprise-orders', protect, authorize(['enterprise']), async (req, res) => {
   try {
     const orders = await Order.find({ enterprise: req.user.id })
-      .populate('buyer', 'name email') // Populate buyer info
-      .populate('items.product', 'name description price') // Populate product details for items
+      .populate('buyer', 'name email')
+      .populate('items.product', 'name description price')
       .sort({ orderDate: -1 });
     res.json(orders);
   } catch (error) {
@@ -99,7 +99,7 @@ router.get('/enterprise-orders', protect, authorize(['enterprise']), async (req,
 // @access  Private/Admin
 router.get('/all', protect, authorize(['admin']), async (req, res) => {
   try {
-    const { buyerId, enterpriseId } = req.query; // Get filter parameters from query
+    const { buyerId, enterpriseId } = req.query;
 
     let filter = {};
     if (buyerId) {
@@ -110,9 +110,9 @@ router.get('/all', protect, authorize(['admin']), async (req, res) => {
     }
 
     const orders = await Order.find(filter)
-      .populate('buyer', 'name email') // Populate buyer info
-      .populate('enterprise', 'name')  // Populate enterprise info
-      .populate('items.product', 'name description price') // Populate product details for items
+      .populate('buyer', 'name email')
+      .populate('enterprise', 'name')
+      .populate('items.product', 'name description price')
       .sort({ orderDate: -1 });
 
     res.json(orders);
@@ -128,7 +128,7 @@ router.get('/all', protect, authorize(['admin']), async (req, res) => {
 // @access  Private/Enterprise or Admin
 router.put('/:id/status', protect, async (req, res) => {
   const { id } = req.params;
-  const { status, items: updatedItems } = req.body; // updatedItems will be present when enterprise approves
+  const { status, items: updatedItems } = req.body;
 
   try {
     const order = await Order.findById(id).populate('items.product');
@@ -139,7 +139,6 @@ router.put('/:id/status', protect, async (req, res) => {
 
     // Role-based authorization for status changes
     if (req.user.role === 'enterprise') {
-      // Enterprise can only approve/reject their own product's orders
       if (order.enterprise.toString() !== req.user.id) {
         return res.status(403).json({ message: 'Not authorized to manage this order' });
       }
@@ -147,21 +146,17 @@ router.put('/:id/status', protect, async (req, res) => {
         if (!updatedItems || updatedItems.length === 0 || updatedItems.some(item => !item.assignedWarehouse || item.assignedWarehouse === '')) {
             return res.status(400).json({ message: 'Assigned warehouses are required for all items before approval.' });
         }
-        // Deduct stock and assign warehouses for each item
         for (const updatedItem of updatedItems) {
             const orderItem = order.items.find(item => item._id.toString() === updatedItem._id);
 
             if (orderItem) {
-                // Find the product and update its stock in the relevant warehouse
                 const product = await Product.findById(orderItem.product._id);
                 if (!product) {
                     throw new Error(`Product not found for item ${orderItem.name}`);
                 }
 
-                // Update the assignedWarehouse in the order item itself
                 orderItem.assignedWarehouse = updatedItem.assignedWarehouse;
 
-                // Find the specific warehouse in the product's warehouses array
                 const warehouseToUpdate = product.warehouses.find(
                     wh => wh.warehouseName === updatedItem.assignedWarehouse
                 );
@@ -170,24 +165,21 @@ router.put('/:id/status', protect, async (req, res) => {
                     if (warehouseToUpdate.stockLevel >= orderItem.quantity) {
                         warehouseToUpdate.stockLevel -= orderItem.quantity;
                     } else {
-                        // If stock isn't sufficient for some reason, roll back or error
-                        // You might want a more sophisticated rollback here or prevent approval if stock is low
                         return res.status(400).json({ message: `Insufficient stock for ${orderItem.name} in warehouse '${warehouseToUpdate.warehouseName}'. Available: ${warehouseToUpdate.stockLevel}, Needed: ${orderItem.quantity}` });
                     }
                 } else {
                     return res.status(400).json({ message: `Warehouse '${updatedItem.assignedWarehouse}' not found for product ${product.name}. Please ensure the warehouse exists.` });
                 }
-                await product.save(); // Save the updated product with new stock level
+                await product.save();
             }
         }
-        order.status = status; // Set order status to approved
+        order.status = status;
       } else if (status === 'rejected') {
         order.status = status;
       } else {
         return res.status(400).json({ message: 'Invalid status for enterprise update. Only "approved" or "rejected" allowed.' });
       }
     } else if (req.user.role === 'admin') {
-      // Admin can change status to shipped, delivered, cancelled
       const validAdminStatuses = ['shipped', 'delivered', 'cancelled'];
       if (!validAdminStatuses.includes(status)) {
         return res.status(400).json({ message: 'Invalid status for admin update. Only "shipped", "delivered", or "cancelled" allowed.' });
